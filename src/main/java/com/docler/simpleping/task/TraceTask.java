@@ -8,18 +8,28 @@ import java.net.InetAddress;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
+/**
+ * Implementation of the trace command 
+ * 
+ * @author dcarao
+ *
+ */
 public class TraceTask implements Callable<String> {
 
 	private final String os = System.getProperty("os.name").toLowerCase();
 	private String host;
 
+	/**
+	 * 
+	 * @param host
+	 */
 	public TraceTask(String host) {
 		this.host = host;
 	}
 
 	@Override
 	public String call() {
-		System.out.println("Running trace for: " + host);
+		System.out.println("Command: tracert " + host);
 		String route = "";
 		String errors = "";
 		try {
@@ -35,10 +45,15 @@ public class TraceTask implements Callable<String> {
 		} catch (IOException e) {
 			System.out.println(errors);
 		}
-		System.out.println("END trace for: " + host);
+		System.out.println("End trace for: " + host);
 		return  "\"trace\":\"" + route +"\"";
 	}
 
+	/**
+	 * 
+	 * @param inputStream
+	 * @return
+	 */
 	private String convertStreamToString(InputStream inputStream) {
 		String result = new BufferedReader(new InputStreamReader(inputStream)).lines()
 				.collect(Collectors.joining());

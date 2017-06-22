@@ -4,72 +4,69 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Date;
 import java.util.Properties;
-import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import com.docler.simpleping.dto.ConfigDto;
 import com.docler.simpleping.service.SimplePingService;
-
+/**
+ * Entry point for the SimplePing application
+ * 
+ * @author dcarao
+ *
+ */
 public class SimplePingMain {
-
-	public static void main(String[] args) {
-        String file = null;
-		if(args.length > 0){
-        	file = args[0];
-        }
-		ConfigDto config = loadProperties(file);
-
-		ScheduledExecutorService execService = Executors.newScheduledThreadPool(0);
-		execService.scheduleWithFixedDelay(() -> {
-
-			Callable<String> task = () -> {
-				try {
-					SimplePingService p = new SimplePingService(config);
-					return p.call();
-				} catch (Exception e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-				return "";
-			};
-
-			Future<String> future = execService.submit(task);
-			System.out.println(new Date() + "Checking if there is a task running...");
-
-			if (future.isDone()) {
-				System.out.println("Starting a new command");
-			} else {
-				// System.out.println("Can't run again");
-			}
-
-		} , 0, config.getScheduleDelay(), TimeUnit.MILLISECONDS);
-
-		// execService.shutdown();
-	}
 
 	/**
 	 * 
-	 * @return
+	 * @param args
+	 * @throws Exception 
 	 */
-	public static ConfigDto loadProperties(String propertyFile) {
-		
-		
-		
+	public static void main(String[] args) throws Exception {
+		String file = null;
+		boolean isDefault = false;
+		if (args.length > 0) {
+			file = args[0];
+		} else {
+			file = "config.properties";
+			isDefault = true;
+		}
+		ConfigDto config = loadProperties(file, isDefault);
+
+		String[] hosts = config.getHosts().split(",");
+
+		ScheduledExecutorService execService = Executors.newScheduledThreadPool(hosts.length);
+		execService.scheduleWithFixedDelay(() -> {
+
+			System.out.println("\n\nSTARTING SimpleMain PROCESS...............");
+			for (String host : hosts) {
+				execService.execute(new SimplePingService(config, host));
+			}
+		} , 0, config.getScheduleDelay(), TimeUnit.MILLISECONDS);
+	}
+
+	/**
+	 * Load configuration.
+	 * 
+	 * @param propertyFile
+	 * @param isDefault
+	 * @return
+	 * @throws Exception 
+	 */
+	public static ConfigDto loadProperties(String propertyFile, boolean isDefault) throws Exception {
+
 		ConfigDto config = new ConfigDto();
 		try {
 			Properties prop = new Properties();
 			InputStream input = null;
-			if(propertyFile == null){
-				input = SimplePingMain.class.getClassLoader().getResourceAsStream("config.properties");
-			}else{
+			if (isDefault) {
+				input = SimplePingMain.class.getClassLoader().getResourceAsStream(propertyFile);
+			} else {
 				File file = new File(propertyFile);
 				input = new FileInputStream(file);
-				
+
 			}
 			prop.load(input);
 
@@ -79,23 +76,21 @@ public class SimplePingMain {
 			config.setTimes(Integer.parseInt(prop.getProperty("ping.times")));
 			config.setUrl(prop.getProperty("url"));
 			config.setScheduleDelay(Long.parseLong(prop.getProperty("delay")));
-			
-			System.out.println("************* Properties Configured");
+
+			System.out.println("************* Properties Configured: " + propertyFile);
 			System.out.println(config);
 			System.out.println("************************************");
-			
+
 			File file = new File(config.getLogFile());
 			if (file.exists()) {
 				file.delete();
 			}
-			
-
 		} catch (IOException e) {
 			System.out.println(e.getMessage());
+			throw new Exception(e);
 		}
 
 		return config;
 	}
-
 
 }

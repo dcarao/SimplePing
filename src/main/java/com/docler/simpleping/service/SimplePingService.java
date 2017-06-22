@@ -10,7 +10,6 @@ import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
@@ -25,24 +24,44 @@ import com.docler.simpleping.task.PingIcmpTask;
 import com.docler.simpleping.task.PingTcpTask;
 import com.docler.simpleping.task.TraceTask;
 
-public class SimplePingService implements Callable<String> {
+/**
+ * Service logic to coordinate the command calls
+ * 
+ * @author dcarao
+ *
+ */
+public class SimplePingService implements Runnable {
 
 	private ConfigDto config;
+	private String host;
 
-	public SimplePingService(ConfigDto config) {
+	/**
+	 * Constructor
+	 * 
+	 * @param config
+	 * @param host
+	 */
+	public SimplePingService(ConfigDto config, String host) {
 		this.config = config;
+		this.host = host;
 	}
 
 	@Override
-	public String call() throws Exception {
+	public void run() {
+		System.out.println("Starting a new Thread for: " + host);
 		ExecutorService executor = Executors.newWorkStealingPool();
 
 		List<Callable<String>> callables = new ArrayList<>();
-		callables.add(new PingIcmpTask(config.getHosts(), config.getTimes()));
-		callables.add(new PingTcpTask(config.getHosts(), config.getTimes(), config.getTimeout()));
-		callables.add(new TraceTask(config.getHosts()));
+		callables.add(new PingIcmpTask(host, config.getTimes()));
+		callables.add(new PingTcpTask(host, config.getTimes(), config.getTimeout()));
+		callables.add(new TraceTask(host));
 
-		List<Future<String>> futures = executor.invokeAll(callables);
+		List<Future<String>> futures = null;
+		try {
+			futures = executor.invokeAll(callables);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
 
 		List<String> result = new ArrayList<>();
 		for (Future<String> future : futures) {
@@ -53,34 +72,35 @@ public class SimplePingService implements Callable<String> {
 			} catch (ExecutionException ee) {
 				ee.printStackTrace();
 			} catch (InterruptedException ie) {
-				Thread.currentThread().interrupt(); // ignore/reset
+				Thread.currentThread().interrupt();
 			}
 		}
-		System.out.println(new Date() + "*********** Completed");
+
 		executor.shutdown();
-
 		report(result);
-
-		return "Completed";
-
+		System.out.println("******************* Completed commands for: " + host);
 	}
 
 	/**
+	 * Report the result. It will write to a file and it will send via POST to a
+	 * http address
 	 * 
 	 * @param result
 	 */
 	public void report(List<String> result) {
 		StringBuilder sb = new StringBuilder();
-		sb.append("{").append("\"host\":\"").append(config.getHosts()).append("\", ");
+		sb.append("{").append("\"host\":\"").append(host).append("\", ");
 		sb.append(result.stream().collect(Collectors.joining(", ")));
 		sb.append("}");
-		System.out.println(sb.toString());
 		writeToFile(sb.toString());
-		sendReport(sb.toString());
+		System.out.println("Results stored in file for host : " + host);
+		int responseCode = sendReport(sb.toString());
+		System.out.println("Results sent for host : " + host + " - Response Code: " + responseCode);
 
 	}
 
 	/**
+	 * Storing the result
 	 * 
 	 * @param content
 	 */
@@ -97,8 +117,6 @@ public class SimplePingService implements Callable<String> {
 			bw.write("\n");
 			bw.close();
 
-			System.out.println("Done");
-
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -106,36 +124,30 @@ public class SimplePingService implements Callable<String> {
 	}
 
 	/**
+	 * Calling a http
 	 * 
 	 * @param payload
 	 */
-	private void sendReport(String payload) {
+	private int sendReport(String payload) {
+		int responseCode = 0;
 		try {
 			URL url = new URL(config.getUrl());
 			HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-			
-			 conn.setDoInput(true);
-		        conn.setDoOutput(true);
+
+			conn.setDoInput(true);
+			conn.setDoOutput(true);
 
 			conn.setRequestMethod("POST");
 			conn.setRequestProperty("Accept", "application/json");
 			conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
 
-
 			// Send post request
-			 OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream(), "UTF-8");
-		        writer.write(payload);
-		        writer.close();
-		       
+			OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream(), "UTF-8");
+			writer.write(payload);
+			writer.close();
+			responseCode = conn.getResponseCode();
 
-
-			int responseCode = conn.getResponseCode();
-			System.out.println("\nSending 'POST' request to URL : " + url);
-			System.out.println("Post parameters : " + payload);
-			System.out.println("Response Code : " + responseCode);
-
-			BufferedReader in = new BufferedReader(
-			        new InputStreamReader(conn.getInputStream()));
+			BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
 			String inputLine;
 			StringBuffer response = new StringBuffer();
 
@@ -144,15 +156,10 @@ public class SimplePingService implements Callable<String> {
 			}
 			in.close();
 			conn.disconnect();
-
-			//print result
-			System.out.println(response.toString());
-
-
-
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
+		return responseCode;
 	}
 
 }
